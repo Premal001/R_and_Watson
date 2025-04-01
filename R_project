@@ -1,0 +1,288 @@
+# final code for analysis of ipl dataset 
+install.packages(c("shiny", "shinydashboard", "ggplot2", "dplyr", "plotly", "DT", "tidyr", "lubridate", "reshape2"))
+
+library(shiny)
+library(shinydashboard)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+library(DT)
+library(tidyr)
+library(lubridate)
+library(reshape2)
+
+ui <- dashboardPage(
+  skin = "purple",
+  dashboardHeader(title = "IPL Analytics Hub"),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Match Overview", tabName = "overview", icon = icon("dashboard")),
+      menuItem("Batting Analysis", tabName = "batting", icon = icon("bat")),
+      menuItem("Toss Analysis", tabName = "toss", icon = icon("coins")),
+      menuItem("Venue Stats", tabName = "venue", icon = icon("map-marker")),
+      menuItem("Player Performance", tabName = "player", icon = icon("user"))
+    ),
+    # Filters
+    dateRangeInput("date_range", "Select Date Range:",
+                   start = "2008-01-01",
+                   end = "2024-12-31"),
+    selectInput("venue_filter", "Select Venue:", choices = NULL, multiple = TRUE),
+    selectInput("team_filter", "Select Team:", choices = NULL, multiple = TRUE)
+  ),
+  
+  dashboardBody(
+    tags$head(
+      tags$style(HTML("
+        .content-wrapper, .right-side {
+          background-color: white;
+        }
+        .box {
+          border-top: 4px solid #3c8dbc;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        }
+      "))
+    ),
+    
+    tabItems(
+      # Match Overview Tab
+      tabItem(tabName = "overview",
+              fluidRow(
+                valueBoxOutput("total_matches", width = 3),
+                valueBoxOutput("highest_score", width = 3),
+                valueBoxOutput("avg_first_innings", width = 3),
+                valueBoxOutput("avg_powerplay", width = 3)
+              ),
+              fluidRow(
+                box(plotlyOutput("matches_trend"), width = 8,
+                    title = "Match Trends Over Time"),
+                box(plotlyOutput("win_type_pie"), width = 4,
+                    title = "Win Type Distribution")
+              ),
+              fluidRow(
+                box(plotlyOutput("score_histogram"), width = 6,
+                    title = "Score Distribution"),
+                box(plotlyOutput("team_performance"), width = 6,
+                    title = "Team Performance")
+              )
+      ),
+      
+      # Batting Analysis Tab
+      tabItem(tabName = "batting",
+              fluidRow(
+                box(plotlyOutput("innings_comparison"), width = 12,
+                    title = "First vs Second Innings Score Comparison")
+              ),
+              fluidRow(
+                box(plotlyOutput("powerplay_analysis"), width = 6,
+                    title = "Powerplay Score Analysis"),
+                box(plotlyOutput("score_heatmap"), width = 6,
+                    title = "Score Heatmap by Venue")
+              )
+      ),
+      
+      # Toss Analysis Tab
+      tabItem(tabName = "toss",
+              fluidRow(
+                box(plotlyOutput("toss_decision_trend"), width = 8,
+                    title = "Toss Decision Trends"),
+                box(plotlyOutput("toss_win_pie"), width = 4,
+                    title = "Toss vs Match Win Correlation")
+              ),
+              fluidRow(
+                box(plotlyOutput("toss_venue_heatmap"), width = 12,
+                    title = "Toss Decision by Venue")
+              )
+      ),
+      
+      # Venue Stats Tab
+      tabItem(tabName = "venue",
+              fluidRow(
+                box(plotlyOutput("venue_win_loss"), width = 12,
+                    title = "Venue Performance Analysis")
+              ),
+              fluidRow(
+                box(plotlyOutput("venue_avg_score"), width = 6,
+                    title = "Average Scores by Venue"),
+                box(plotlyOutput("venue_win_type"), width = 6,
+                    title = "Win Types by Venue")
+              )
+      ),
+      
+      # Player Performance Tab
+      tabItem(tabName = "player",
+              fluidRow(
+                box(plotlyOutput("player_of_match"), width = 8,
+                    title = "Top Players of the Match"),
+                box(plotlyOutput("player_team_dist"), width = 4,
+                    title = "Player Distribution by Team")
+              ),
+              fluidRow(
+                box(DTOutput("player_stats_table"), width = 12,
+                    title = "Player Performance Statistics")
+              )
+      )
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  # Read data
+  ipl_data <- read.csv("C:/Users/salun/OneDrive/Desktop/R_dashboard/Data/IPL_Dataset(2008-2024).csv")
+  
+  # Convert Date column
+  ipl_data$Date <- as.Date(ipl_data$Date)
+  
+  # Update selection choices
+  observe({
+    updateSelectInput(session, "venue_filter", choices = sort(unique(ipl_data$Venue)))
+    updateSelectInput(session, "team_filter", choices = sort(unique(ipl_data$Team)))
+  })
+  
+  # Filtered dataset
+  filtered_data <- reactive({
+    data <- ipl_data
+    
+    if (!is.null(input$date_range)) {
+      data <- data[data$Date >= input$date_range[1] & data$Date <= input$date_range[2], ]
+    }
+    if (!is.null(input$venue_filter) && length(input$venue_filter) > 0) {
+      data <- data[data$Venue %in% input$venue_filter, ]
+    }
+    if (!is.null(input$team_filter) && length(input$team_filter) > 0) {
+      data <- data[data$Team %in% input$team_filter, ]
+    }
+    
+    data
+  })
+  
+  # Value Boxes
+  output$total_matches <- renderValueBox({
+    valueBox(
+      nrow(filtered_data()),
+      "Total Matches",
+      icon = icon("cricket-ball"),
+      color = "blue"
+    )
+  })
+  
+  output$highest_score <- renderValueBox({
+    valueBox(
+      max(c(filtered_data()$First_Innings_Score, filtered_data()$Second_Innings_Score), na.rm = TRUE),
+      "Highest Score",
+      icon = icon("chart-line"),
+      color = "red"
+    )
+  })
+  
+  output$avg_first_innings <- renderValueBox({
+    valueBox(
+      round(mean(filtered_data()$First_Innings_Score, na.rm = TRUE), 1),
+      "Avg First Innings",
+      icon = icon("calculator"),
+      color = "purple"
+    )
+  })
+  
+  output$avg_powerplay <- renderValueBox({
+    valueBox(
+      round(mean(filtered_data()$Powerplay_Scores, na.rm = TRUE), 1),
+      "Avg Powerplay",
+      icon = icon("bolt"),
+      color = "red"
+    )
+  })
+  
+  # Match Trends Plot
+  output$matches_trend <- renderPlotly({
+    trend_data <- filtered_data() %>%
+      group_by(Date) %>%
+      summarise(Avg_Score = mean(First_Innings_Score, na.rm = TRUE))
+    
+    plot_ly(trend_data, x = ~Date, y = ~Avg_Score,
+            type = 'scatter', mode = 'lines+markers',
+            line = list(color = '#3c8dbc')) %>%
+      layout(title = "Average Scores Over Time",
+             xaxis = list(title = "Date"),
+             yaxis = list(title = "Average Score"))
+  })
+  
+  # Win Type Pie Chart
+  output$win_type_pie <- renderPlotly({
+    win_data <- filtered_data() %>%
+      count(Win_Type)
+    
+    plot_ly(win_data, labels = ~Win_Type, values = ~n,
+            type = 'pie',
+            marker = list(colors = c('#3c8dbc', '#00a65a'))) %>%
+      layout(title = "Match Win Types")
+  })
+  
+  # Score Distribution Histogram
+  output$score_histogram <- renderPlotly({
+    plot_ly(filtered_data(), x = ~First_Innings_Score,
+            type = 'histogram',
+            marker = list(color = '#3c8dbc')) %>%
+      layout(title = "First Innings Score Distribution",
+             xaxis = list(title = "Score"),
+             yaxis = list(title = "Frequency"))
+  })
+  
+  # Innings Comparison
+  output$innings_comparison <- renderPlotly({
+    plot_ly() %>%
+      add_trace(data = filtered_data(), x = ~Date, y = ~First_Innings_Score,
+                name = "First Innings", type = 'scatter', mode = 'lines',
+                line = list(color = '#3c8dbc')) %>%
+      add_trace(data = filtered_data(), x = ~Date, y = ~Second_Innings_Score,
+                name = "Second Innings", type = 'scatter', mode = 'lines',
+                line = list(color = '#00a65a')) %>%
+      layout(title = "Innings Score Comparison",
+             xaxis = list(title = "Date"),
+             yaxis = list(title = "Score"))
+  })
+  
+  # Powerplay Analysis
+  output$powerplay_analysis <- renderPlotly({
+    plot_ly(filtered_data(), x = ~Powerplay_Scores, type = 'box',
+            color = ~Win_Type) %>%
+      layout(title = "Powerplay Scores by Win Type",
+             xaxis = list(title = "Powerplay Score"),
+             yaxis = list(title = "Win Type"))
+  })
+  
+  # Player of Match Analysis
+  output$player_of_match <- renderPlotly({
+    player_data <- filtered_data() %>%
+      count(Player_of_Match) %>%
+      arrange(desc(n)) %>%
+      head(10)
+    
+    plot_ly(player_data, x = ~reorder(Player_of_Match, n), y = ~n,
+            type = 'bar',
+            marker = list(color = '#3c8dbc')) %>%
+      layout(title = "Top Players of the Match",
+             xaxis = list(title = "Player"),
+             yaxis = list(title = "Number of Awards"))
+  })
+  
+  # Player Stats Table
+  output$player_stats_table <- renderDT({
+    player_stats <- filtered_data() %>%
+      group_by(Player_of_Match) %>%
+      summarise(
+        Awards = n(),
+        Win_Rate = sprintf("%.2f%%", mean(Player_of_Match == Match_Winner) * 100),
+        Avg_Match_Score = round(mean(First_Innings_Score, na.rm = TRUE), 2)
+      ) %>%
+      arrange(desc(Awards)) %>%
+      head(10)
+    
+    datatable(player_stats,
+              options = list(pageLength = 5,
+                           scrollX = TRUE))
+  })
+}
+
+# Run the app
+shinyApp(ui = ui, server = server)
